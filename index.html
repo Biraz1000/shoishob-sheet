@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shoishob bhai - Full Sheet</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f2f2f2; padding: 20px; }
+        .container { max-width: 1200px; margin: auto; }
+        h2 { color: #1a3e6b; border-bottom: 2px solid #4472C4; padding-bottom: 5px; }
+        .top-summary { background: white; padding: 10px; margin-bottom: 15px; display: flex; flex-wrap: wrap; gap: 15px; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .top-summary label { font-weight: bold; }
+        .top-summary input { width: 100px; padding: 4px; text-align: right; }
+        button { padding: 6px 14px; cursor: pointer; background: #4472C4; color: white; border: none; border-radius: 3px; font-size: 14px; }
+        button:hover { background: #2a4d8c; }
+        table { border-collapse: collapse; width: 100%; background: white; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 25px; }
+        th, td { border: 1px solid #aaa; padding: 6px 8px; text-align: center; }
+        th { background: #4472C4; color: white; font-weight: bold; }
+        .title { background: #4472C4; color: white; font-size: 18px; font-weight: bold; }
+        td[contenteditable="true"]:focus { outline: 2px solid #FFC000; background: #FFF2CC; }
+        .auto-cell { background: #E2EFDA; }
+        .balance-row td { background: #B4C6E7; font-weight: bold; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1 style="text-align:center; color:#4472C4;">Shoishob bhai</h1>
+
+    <!-- আগের বাকি ইনপুট -->
+    <div class="top-summary">
+        <label>গত মাসের বাকি (Previous Due) $:</label>
+        <input type="number" id="prevDue" value="0" step="any">
+        <button id="addFileRowBtn">➕ Add File Row</button>
+        <button id="addPaymentBtn">💵 Add Payment</button>
+    </div>
+
+    <!-- ফাইল ডিটেইলস টেবিল -->
+    <h2>📁 ফাইলের বিবরণ</h2>
+    <table id="fileTable">
+        <thead>
+            <tr>
+                <th>File Name</th>
+                <th>Date Sent</th>
+                <th>Report Received</th>
+                <th>Mail</th>
+                <th>Report</th>
+                <th>Total Good</th>
+                <th>Rate ($)</th>
+                <th>Amount ($)</th>
+            </tr>
+        </thead>
+        <tbody id="fileBody"></tbody>
+    </table>
+
+    <!-- পেমেন্ট লগ টেবিল -->
+    <h2>💰 বায়ারের পেমেন্ট লগ</h2>
+    <table id="paymentTable">
+        <thead>
+            <tr>
+                <th>Payment Date</th>
+                <th>Amount Paid ($)</th>
+            </tr>
+        </thead>
+        <tbody id="paymentBody"></tbody>
+        <tfoot>
+            <tr class="balance-row">
+                <td><strong>Total Paid</strong></td>
+                <td id="totalPaid">0.00</td>
+            </tr>
+        </tfoot>
+    </table>
+
+    <!-- সারসংক্ষেপ -->
+    <h2>📊 সারাংশ</h2>
+    <table>
+        <tr><td><strong>মোট ফাইল Amount</strong></td><td id="totalFileAmount">0.00</td></tr>
+        <tr><td><strong>+ পূর্বের বাকি</strong></td><td id="dueDisplay">0.00</td></tr>
+        <tr><td><strong>− মোট পেমেন্ট</strong></td><td id="paidDisplay">0.00</td></tr>
+        <tr class="balance-row"><td><strong>⚖️ বর্তমান ব্যালেন্স</strong></td><td id="balanceDisplay">0.00</td></tr>
+    </table>
+</div>
+
+<script>
+    const STORAGE_FILE = 'shoishob_files_rows';
+    const STORAGE_PAY = 'shoishob_payments_rows';
+    const STORAGE_DUE = 'shoishob_prevDue';
+
+    const fileBody = document.getElementById('fileBody');
+    const paymentBody = document.getElementById('paymentBody');
+    const prevDueInput = document.getElementById('prevDue');
+
+    // হেল্পার
+    function parseNum(str) {
+        if (str === null || str.trim() === '') return 0;
+        return parseFloat(str) || 0;
+    }
+
+    // ---------- ফাইল রো ----------
+    function createFileRow(file='', dateSent='', reportRec='', mail='', report='', rate='') {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td contenteditable="true">${file}</td>
+            <td contenteditable="true">${dateSent}</td>
+            <td contenteditable="true">${reportRec}</td>
+            <td contenteditable="true" class="mail">${mail}</td>
+            <td contenteditable="true" class="report">${report}</td>
+            <td class="totalgood auto-cell">0</td>
+            <td contenteditable="true" class="rate">${rate}</td>
+            <td class="amount auto-cell">0.00</td>
+        `;
+        fileBody.appendChild(row);
+    }
+
+    function loadFileRows() {
+        const saved = localStorage.getItem(STORAGE_FILE);
+        let data = [];
+        if (saved) { try { data = JSON.parse(saved); } catch(e) {} }
+        if (data.length === 0) {
+            // ডিফল্ট একটা ফাঁকা সারি
+            data.push({ file:'', dateSent:'', reportRec:'', mail:'0', report:'0', rate:'0' });
+        }
+        data.forEach(r => createFileRow(r.file, r.dateSent, r.reportRec, r.mail, r.report, r.rate));
+    }
+
+    function saveFileRows() {
+        const rows = document.querySelectorAll('#fileBody tr');
+        const data = [];
+        rows.forEach(row => {
+            const cells = row.querySelectorAll('td[contenteditable="true"]');
+            if (cells.length >= 5) {
+                data.push({
+                    file: cells[0].innerText,
+                    dateSent: cells[1].innerText,
+                    reportRec: cells[2].innerText,
+                    mail: cells[3].innerText,
+                    report: cells[4].innerText,
+                    rate: cells[5].innerText   // cells[5] is rate (0-index: 0 file,1 sent,2 reprec,3 mail,4 report,5 rate)
+                });
+            }
+        });
+        localStorage.setItem(STORAGE_FILE, JSON.stringify(data));
+    }
+
+    // ---------- পেমেন্ট রো ----------
+    function createPaymentRow(date='', amount='') {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td contenteditable="true">${date}</td>
+            <td contenteditable="true" class="payamount">${amount}</td>
+        `;
+        paymentBody.appendChild(row);
+    }
+
+    function loadPaymentRows() {
+        const saved = localStorage.getItem(STORAGE_PAY);
+        let data = [];
+        if (saved) { try { data = JSON.parse(saved); } catch(e) {} }
+        if (data.length === 0) {
+            // কোনো ডিফল্ট না, খালি
+        }
+        data.forEach(p => createPaymentRow(p.date, p.amount));
+    }
+
+    function savePaymentRows() {
+        const rows = document.querySelectorAll('#paymentBody tr');
+        const data = [];
+        rows.forEach(row => {
+            const cells = row.querySelectorAll('td[contenteditable="true"]');
+            if (cells.length >= 2) {
+                data.push({
+                    date: cells[0].innerText,
+                    amount: cells[1].innerText
+                });
+            }
+        });
+        localStorage.setItem(STORAGE_PAY, JSON.stringify(data));
+    }
+
+    // ---------- হিসাব আপডেট ----------
+    function updateAllCalculations() {
+        // 1. ফাইল সারিগুলোর Total Good ও Amount
+        const fileRows = document.querySelectorAll('#fileBody tr');
+        let totalFileAmount = 0;
+        fileRows.forEach(row => {
+            const mailCell = row.querySelector('.mail');
+            const reportCell = row.querySelector('.report');
+            const rateCell = row.querySelector('.rate');
+            const totalGoodCell = row.querySelector('.totalgood');
+            const amountCell = row.querySelector('.amount');
+
+            const mail = parseNum(mailCell.innerText);
+            const report = parseNum(reportCell.innerText);
+            const rate = parseNum(rateCell.innerText);
+            const totalGood = mail - report;
+            const amount = totalGood * rate;
+
+            totalGoodCell.innerText = totalGood;
+            amountCell.innerText = amount.toFixed(2);
+            totalFileAmount += amount;
+        });
+
+        // 2. পেমেন্ট যোগফল
+        const paymentRows = document.querySelectorAll('#paymentBody tr');
+        let totalPaid = 0;
+        paymentRows.forEach(row => {
+            const amountCell = row.querySelector('.payamount');
+            if (amountCell) totalPaid += parseNum(amountCell.innerText);
+        });
+        document.getElementById('totalPaid').innerText = totalPaid.toFixed(2);
+
+        // 3. পূর্বের বাকি
+        const prevDue = parseFloat(prevDueInput.value) || 0;
+        const balance = totalFileAmount + prevDue - totalPaid;
+
+        // আপডেট সারাংশ
+        document.getElementById('totalFileAmount').innerText = totalFileAmount.toFixed(2);
+        document.getElementById('dueDisplay').innerText = prevDue.toFixed(2);
+        document.getElementById('paidDisplay').innerText = totalPaid.toFixed(2);
+        document.getElementById('balanceDisplay').innerText = balance.toFixed(2);
+
+        // স্টোরেজ সেভ
+        saveFileRows();
+        savePaymentRows();
+        localStorage.setItem(STORAGE_DUE, prevDueInput.value);
+    }
+
+    // ইভেন্ট বাইন্ডিং
+    function bindEvents() {
+        // যেকোনো কনটেন্টএডিটেবল পরিবর্তন
+        document.addEventListener('input', function(e) {
+            if (e.target.contentEditable === 'true') {
+                updateAllCalculations();
+            }
+        });
+        prevDueInput.addEventListener('input', updateAllCalculations);
+        document.getElementById('addFileRowBtn').addEventListener('click', () => {
+            createFileRow();
+            updateAllCalculations();
+        });
+        document.getElementById('addPaymentBtn').addEventListener('click', () => {
+            createPaymentRow();
+            updateAllCalculations();
+        });
+    }
+
+    // ---------- শুরু ----------
+    // প্রথমে পুরনো ডাটা লোড
+    loadFileRows();
+    loadPaymentRows();
+    // Previous Due লোড
+    const savedDue = localStorage.getItem(STORAGE_DUE);
+    if (savedDue !== null) prevDueInput.value = savedDue;
+    // হিসাব
+    updateAllCalculations();
+    bindEvents();
+</script>
+</body>
+</html>
